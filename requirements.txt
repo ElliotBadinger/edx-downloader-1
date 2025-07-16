@@ -1,18 +1,18 @@
-beautifulsoup4==4.9.3
-bs4==0.0.1
-certifi==2020.12.5
-chardet==4.0.0
-colorful==0.5.4
-decorator==4.4.2
-edx-downloader==1.0.1
-fake-useragent==0.1.11
-idna==2.10
-lxml==4.6.2
-python-slugify==4.0.1
-requests==2.25.1
-six==1.15.0
-soupsieve==2.2
-text-unidecode==1.3
-tqdm==4.57.0
-urllib3==1.26.3
-validators==0.18.2
+# Core dependencies
+beautifulsoup4==4.12.2
+requests==2.31.0
+lxml==4.9.3
+tqdm==4.66.1
+click==8.1.7
+validators==0.22.0
+python-slugify==8.0.1
+keyring==24.3.0
+cryptography>=41.0.0
+
+# Development dependencies (install with: pip install -e .[dev])
+# pytest==7.4.3
+# pytest-cov==4.1.0
+# black==23.11.0
+# flake8==6.1.0
+# mypy==1.7.1
+# pre-commit==3.6.0

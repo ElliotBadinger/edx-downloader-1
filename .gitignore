@@ -1,12 +1,61 @@
+# Python
 __pycache__/
-*.swp
-*.mp4
-*.docx
-*.pdf
+*.py[cod]
+*$py.class
+*.so
+.Python
 build/
+develop-eggs/
 dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
 *.egg-info/
+.installed.cfg
+*.egg
+
+# Testing
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+
+# IDEs
 .idea/
+.vscode/
+*.swp
+*.swo
+
+# Virtual environments
+.env
 .venv/
-*.json
-edx-error.log.DS_Store
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Downloaded content
+*.mp4
+*.mkv
+*.avi
+downloads/
+
+# Logs and temp files
+*.log
+edx-error.log
+.DS_Store
+*.tmp
+
+# Config files (keep sample)
+.edxauth
+
+# Documentation builds
+docs/_build/

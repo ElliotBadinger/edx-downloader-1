@@ -1,44 +1,62 @@
-from setuptools import setup
-from os import path
+from setuptools import setup, find_packages
+from pathlib import Path
 
+# Read the contents of README file
+this_directory = Path(__file__).parent
+long_description = (this_directory / "README.md").read_text(encoding='utf-8')
 
-curr_directory = path.abspath(path.dirname(__file__))
-with open(path.join(curr_directory, 'README.md'), encoding='utf-8') as f:
-    long_description = f.read()
-
-setup(name='edx-downloader',
-	version='1.0.3',
-	description='CLI downloader for EDX video courses. Download all course videos from https://edx.org easily.',
-	author='Rehmat Alam',
-	author_email='contact@rehmat.works',
-	url='https://github.com/rehmatworks/edx-downloader',
+setup(
+    name='edx-downloader',
+    version='2.0.0',
+    description='Modern CLI downloader for EDX video courses with updated APIs and improved reliability.',
     long_description=long_description,
     long_description_content_type='text/markdown',
-	license='MIT',
-	entry_points={
-		'console_scripts': [
-			'edxdl = edxdownloader.utils:main'
-			],
-	},
-	packages=[
-		'edxdownloader'
-	],
-	install_requires=[
-		'beautifulsoup4>=4.9',
-        'bs4>=0.0',
-        'certifi>=2020.12',
-        'chardet>=4.0.0',
-        'colorful>=0.5.4',
-        'decorator>=4.4',
-        'fake-useragent>=0.1',
-        'idna>=2.10',
-        'lxml>=4.6',
-        'requests>=2.25',
-        'six>=1.15',
-        'soupsieve>=2.2',
-        'tqdm>=4.57.0',
-        'urllib3>=1.26',
-        'validators>=0.18',
-        'python-slugify>=4.0'
-	]
+    author='Rehmat Alam',
+    author_email='contact@rehmat.works',
+    url='https://github.com/rehmatworks/edx-downloader',
+    license='MIT',
+    packages=find_packages(),
+    python_requires='>=3.8',
+    entry_points={
+        'console_scripts': [
+            'edxdl = edx_downloader.cli:main',
+        ],
+    },
+    install_requires=[
+        'beautifulsoup4>=4.12.0',
+        'requests>=2.31.0',
+        'lxml>=4.9.0',
+        'tqdm>=4.65.0',
+        'click>=8.1.0',
+        'validators>=0.22.0',
+        'python-slugify>=8.0.0',
+        'keyring>=24.0.0',
+        'cryptography>=41.0.0',
+    ],
+    extras_require={
+        'dev': [
+            'pytest>=7.4.0',
+            'pytest-cov>=4.1.0',
+            'black>=23.7.0',
+            'flake8>=6.0.0',
+            'mypy>=1.5.0',
+            'pre-commit>=3.3.0',
+        ],
+    },
+    classifiers=[
+        'Development Status :: 4 - Beta',
+        'Intended Audience :: End Users/Desktop',
+        'License :: OSI Approved :: MIT License',
+        'Operating System :: OS Independent',
+        'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
+        'Topic :: Education',
+        'Topic :: Internet :: WWW/HTTP',
+        'Topic :: Multimedia :: Video',
+    ],
+    keywords='edx education video downloader cli course',
 )
