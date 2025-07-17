@@ -1,6 +1,7 @@
 """Unit tests for EDX authentication system."""
 
 import json
+import logging
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path

@@ -32,6 +32,9 @@ setup(
         'python-slugify>=8.0.0',
         'keyring>=24.0.0',
         'cryptography>=41.0.0',
+        'aiohttp>=3.9.0',
+        'aiofiles>=24.1.0',
+        'rich>=13.7.0',
     ],
     extras_require={
         'dev': [

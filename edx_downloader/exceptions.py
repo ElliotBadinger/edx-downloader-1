@@ -160,3 +160,11 @@ class ValidationError(EdxDownloaderError):
         super().__init__(message, details)
         self.field_name = field_name
         self.field_value = field_value
+
+
+class MigrationError(EdxDownloaderError):
+    """Migration and backward compatibility errors."""
+
+    def __init__(self, message: str, migration_type: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
+        super().__init__(message, details)
+        self.migration_type = migration_type
