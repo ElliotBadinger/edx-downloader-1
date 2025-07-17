@@ -30,7 +30,7 @@ pip install edx-downloader
 
 ### From Source (Development)
 ```bash
-git clone https://github.com/rehmatworks/edx-downloader.git
+git clone https://github.com/ElliotBadinger/edx-downloader-1.git
 cd edx-downloader
 pip install -e .
 ```
@@ -163,6 +163,12 @@ This software is intended for legitimate educational use only. Users are respons
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) file for details.
+
+## 👨‍💻 Author
+
+**Siyabonga Buthelezi**  
+📧 Email: [brainstein@protonmail.com](mailto:brainstein@protonmail.com)  
+🐙 GitHub: [@ElliotBadinger](https://github.com/ElliotBadinger)
 
 ## 🙏 Credits
 

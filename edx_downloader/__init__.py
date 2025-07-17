@@ -6,8 +6,8 @@ improved error handling, and better maintainability.
 """
 
 __version__ = "2.0.0"
-__author__ = "Rehmat Alam"
-__email__ = "contact@rehmat.works"
+__author__ = "Siyabonga Buthelezi"
+__email__ = "brainstein@protonmail.com"
 
 from .exceptions import (
     EdxDownloaderError,
