@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -19,6 +20,9 @@ from edx_downloader.exceptions import (
     NetworkError, ConnectionError, TimeoutError, RateLimitError, 
     ServerError, AuthenticationError, SessionExpiredError
 )
+from edx_downloader.logging_config import get_logger, log_with_context, performance_timer
+
+logger = get_logger(__name__)
 
 
 class RateLimiter:
@@ -212,7 +216,7 @@ class EdxApiClient:
             backoff_factor=2.0
         )
         self.cache = ResponseCache(
-            cache_dir=config.cache_path / "api_responses",
+            cache_dir=Path(config.cache_directory) / "api_responses",
             default_ttl=300
         )
         self.auth_session: Optional[AuthSession] = None
@@ -308,82 +312,174 @@ class EdxApiClient:
             NetworkError: For network-related errors.
             AuthenticationError: For authentication errors.
         """
-        if require_auth:
-            self._check_auth_session()
-        
-        # Check cache for GET requests
-        if method.upper() == 'GET' and use_cache:
-            cached_response = self.cache.get(url, params)
-            if cached_response:
-                return cached_response
-        
-        # Apply rate limiting
-        await self.rate_limiter.wait()
-        
-        # Prepare request
         full_url = urljoin(self.base_url, url) if not url.startswith('http') else url
-        request_headers = self.session.headers.copy()
-        if headers:
-            request_headers.update(headers)
         
-        try:
-            response = self.session.request(
-                method=method,
-                url=full_url,
-                params=params,
-                data=data,
-                json=json_data,
-                headers=request_headers,
-                timeout=30
-            )
+        with performance_timer(f"api_request_{method.lower()}", logger):
+            if require_auth:
+                self._check_auth_session()
             
-            # Handle different response status codes
-            if response.status_code == 200:
-                self.rate_limiter.on_success()
-                response_data = self._parse_response(response)
+            # Check cache for GET requests
+            if method.upper() == 'GET' and use_cache:
+                cached_response = self.cache.get(url, params)
+                if cached_response:
+                    log_with_context(logger, logging.DEBUG, "Cache hit for API request", {
+                        'method': method,
+                        'url': full_url,
+                        'cache_used': True
+                    })
+                    return cached_response
+            
+            # Apply rate limiting
+            await self.rate_limiter.wait()
+            
+            # Prepare request
+            request_headers = self.session.headers.copy()
+            if headers:
+                request_headers.update(headers)
+            
+            # Calculate request size for logging
+            request_size = 0
+            if data:
+                request_size = len(str(data).encode('utf-8'))
+            elif json_data:
+                request_size = len(json.dumps(json_data).encode('utf-8'))
+            
+            start_time = time.time()
+            
+            try:
+                log_with_context(logger, logging.DEBUG, "Making API request", {
+                    'method': method,
+                    'url': full_url,
+                    'has_params': params is not None,
+                    'has_data': data is not None or json_data is not None,
+                    'request_size_bytes': request_size,
+                    'require_auth': require_auth,
+                    'use_cache': use_cache
+                })
                 
-                # Cache successful GET responses
-                if method.upper() == 'GET' and use_cache:
-                    self.cache.set(url, response_data, params)
+                response = self.session.request(
+                    method=method,
+                    url=full_url,
+                    params=params,
+                    data=data,
+                    json=json_data,
+                    headers=request_headers,
+                    timeout=30
+                )
                 
-                return response_data
+                duration = time.time() - start_time
+                response_size = len(response.content) if hasattr(response, 'content') else 0
+                
+                # Log API request details using the logging system's method
+                from .logging_config import _logger_instance
+                if _logger_instance:
+                    _logger_instance.log_api_request(
+                        logger, method, full_url, response.status_code, 
+                        duration, request_size, response_size
+                    )
+                
+                # Handle different response status codes
+                if response.status_code == 200:
+                    self.rate_limiter.on_success()
+                    response_data = self._parse_response(response)
+                    
+                    # Cache successful GET responses
+                    if method.upper() == 'GET' and use_cache:
+                        self.cache.set(url, response_data, params)
+                    
+                    log_with_context(logger, logging.DEBUG, "API request successful", {
+                        'method': method,
+                        'url': full_url,
+                        'status_code': response.status_code,
+                        'response_size_bytes': response_size,
+                        'duration_seconds': duration
+                    })
+                    
+                    return response_data
+                
+                elif response.status_code == 429:
+                    self.rate_limiter.on_rate_limit()
+                    log_with_context(logger, logging.WARNING, "Rate limit exceeded", {
+                        'method': method,
+                        'url': full_url,
+                        'status_code': response.status_code,
+                        'current_delay': self.rate_limiter.current_delay,
+                        'consecutive_limits': self.rate_limiter.consecutive_rate_limits
+                    })
+                    raise RateLimitError(
+                        "Rate limit exceeded",
+                        status_code=response.status_code,
+                        url=full_url
+                    )
+                
+                elif response.status_code in [401, 403]:
+                    log_with_context(logger, logging.ERROR, "Authentication failed", {
+                        'method': method,
+                        'url': full_url,
+                        'status_code': response.status_code,
+                        'has_auth_session': self.auth_session is not None
+                    })
+                    raise AuthenticationError(
+                        f"Authentication failed: {response.status_code}",
+                        details={'status_code': response.status_code, 'url': full_url}
+                    )
+                
+                elif response.status_code >= 500:
+                    log_with_context(logger, logging.ERROR, "Server error", {
+                        'method': method,
+                        'url': full_url,
+                        'status_code': response.status_code,
+                        'response_text': response.text[:200] if hasattr(response, 'text') else None
+                    })
+                    raise ServerError(
+                        f"Server error: {response.status_code}",
+                        status_code=response.status_code,
+                        url=full_url
+                    )
+                
+                else:
+                    log_with_context(logger, logging.WARNING, "HTTP error", {
+                        'method': method,
+                        'url': full_url,
+                        'status_code': response.status_code,
+                        'response_text': response.text[:200] if hasattr(response, 'text') else None
+                    })
+                    raise NetworkError(
+                        f"HTTP error: {response.status_code}",
+                        status_code=response.status_code,
+                        url=full_url
+                    )
             
-            elif response.status_code == 429:
-                self.rate_limiter.on_rate_limit()
-                raise RateLimitError(
-                    "Rate limit exceeded",
-                    status_code=response.status_code,
-                    url=full_url
-                )
+            except requests.exceptions.Timeout:
+                duration = time.time() - start_time
+                log_with_context(logger, logging.ERROR, "Request timeout", {
+                    'method': method,
+                    'url': full_url,
+                    'timeout_seconds': 30,
+                    'duration_seconds': duration
+                })
+                raise TimeoutError("Request timed out", url=full_url)
             
-            elif response.status_code in [401, 403]:
-                raise AuthenticationError(
-                    f"Authentication failed: {response.status_code}",
-                    details={'status_code': response.status_code, 'url': full_url}
-                )
+            except requests.exceptions.ConnectionError as e:
+                duration = time.time() - start_time
+                log_with_context(logger, logging.ERROR, "Connection error", {
+                    'method': method,
+                    'url': full_url,
+                    'error_message': str(e),
+                    'duration_seconds': duration
+                })
+                raise ConnectionError(f"Connection failed: {str(e)}", url=full_url)
             
-            elif response.status_code >= 500:
-                raise ServerError(
-                    f"Server error: {response.status_code}",
-                    status_code=response.status_code,
-                    url=full_url
-                )
-            
-            else:
-                raise NetworkError(
-                    f"HTTP error: {response.status_code}",
-                    status_code=response.status_code,
-                    url=full_url
-                )
-        
-        except requests.exceptions.Timeout:
-            raise TimeoutError("Request timed out", url=full_url)
-        
-        except requests.exceptions.ConnectionError as e:
-            raise ConnectionError(f"Connection failed: {str(e)}", url=full_url)
-        
-        except requests.exceptions.RequestException as e:
-            raise NetworkError(f"Request failed: {str(e)}", url=full_url)
+            except requests.exceptions.RequestException as e:
+                duration = time.time() - start_time
+                log_with_context(logger, logging.ERROR, "Request exception", {
+                    'method': method,
+                    'url': full_url,
+                    'error_type': type(e).__name__,
+                    'error_message': str(e),
+                    'duration_seconds': duration
+                })
+                raise NetworkError(f"Request failed: {str(e)}", url=full_url)
     
     def _parse_response(self, response: requests.Response) -> Dict[str, Any]:
         """Parse response content based on content type.

@@ -254,6 +254,16 @@ class AppConfig:
     retry_attempts: int = 3
     video_quality_preference: str = "highest"
     
+    # NEW: API endpoint configuration for different EDX instances
+    api_endpoints: Dict[str, str] = field(default_factory=lambda: {
+        'course_blocks': '/api/courses/v1/blocks/',
+        'course_info': '/api/courses/v1/courses/{course_id}/',
+        'enrollment': '/api/enrollment/v1/enrollment',
+        'oauth_token': '/oauth2/access_token',
+        'user_info': '/api/user/v1/me',
+        'video_analytics': '/api/v0/courses/{course_id}/videos/'
+    })
+    
     def __post_init__(self):
         """Validate application configuration after initialization."""
         self.validate()

@@ -4,22 +4,26 @@
 
 ## Executive Summary
 
-This report validates our EDX downloader implementation against the current EDX platform APIs and identifies discrepancies and required updates. **Key Finding**: Our implementation is mostly aligned with current APIs, but the Course Blocks API endpoint needs verification and video extraction requires strengthening.
+This report validates our EDX downloader implementation against the current EDX platform APIs and identifies discrepancies and required updates. 
+
+**Key Finding**: Our implementation is mostly aligned with current APIs, but the Course Blocks API endpoint needs verification and video extraction requires strengthening.
 
 ## Current Implementation Analysis
 
 ### API Endpoints Used
+
 Our codebase currently targets these EDX API endpoints:
 
 **Main API Endpoints:**
-- Course Blocks: `/api/courses/v1/courses/{course_id}/blocks/`
-- Course Info: `/api/courses/v1/courses/{course_id}/`
-- User Info: `/api/user/v1/me`
-- Authentication: `/oauth2/access_token`
+- **Course Blocks**: `/api/courses/v1/courses/{course_id}/blocks/`
+- **Course Info**: `/api/courses/v1/courses/{course_id}/`
+- **User Info**: `/api/user/v1/me`
+- **Authentication**: `/oauth2/access_token`
 
 ### Authentication Method
-- JWT-based authentication using OAuth2 client credentials flow
-- Session-based authentication with CSRF tokens as fallback
+
+- **JWT-based authentication** using OAuth2 client credentials flow
+- **Session-based authentication** with CSRF tokens as fallback
 
 ## EDX Platform API Status (2025)
 

@@ -26,6 +26,8 @@ wheels/
 htmlcov/
 .tox/
 .nox/
+MagicMock/
+test_cache/
 
 # IDEs
 .idea/

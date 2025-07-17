@@ -1,6 +1,7 @@
 """Course discovery and parsing system for EDX downloader."""
 
 import json
+import logging
 import re
 from typing import Dict, List, Optional, Tuple, Any
 from urllib.parse import urljoin, urlparse, parse_qs
@@ -13,6 +14,9 @@ from edx_downloader.exceptions import (
     CourseAccessError, CourseNotFoundError, EnrollmentRequiredError,
     CourseNotStartedError, CourseEndedError, ParseError, NetworkError
 )
+from edx_downloader.logging_config import get_logger, log_with_context, performance_timer
+
+logger = get_logger(__name__)
 
 
 class CourseManager:
@@ -83,27 +87,54 @@ class CourseManager:
             CourseNotFoundError: If course is not found.
             CourseAccessError: If course access is restricted.
         """
-        course_id = await self.parse_course_url(course_url)
-        
-        try:
-            # Get course info from API
-            course_info_url = f"/api/courses/v1/courses/{course_id}/"
-            course_data = await self.api_client.get(course_info_url, require_auth=False)
+        with performance_timer("get_course_info", logger):
+            log_with_context(logger, logging.INFO, "Getting course information", {
+                'course_url': course_url
+            })
             
-            if 'content' in course_data and course_data.get('content_type') == 'html':
-                # Parse HTML response
-                return await self._parse_course_info_from_html(course_data['content'], course_url, course_id)
-            else:
-                # Parse JSON response
-                return self._parse_course_info_from_json(course_data, course_url, course_id)
+            course_id = await self.parse_course_url(course_url)
+            
+            log_with_context(logger, logging.DEBUG, "Parsed course ID", {
+                'course_url': course_url,
+                'course_id': course_id
+            })
+            
+            try:
+                # Get course info from API
+                course_info_url = f"/api/courses/v1/courses/{course_id}/"
                 
-        except NetworkError as e:
-            if e.status_code == 404:
-                raise CourseNotFoundError(f"Course not found: {course_id}")
-            elif e.status_code == 403:
-                raise CourseAccessError(f"Access denied to course: {course_id}")
-            else:
-                raise CourseAccessError(f"Failed to get course info: {str(e)}", course_id=course_id)
+                with performance_timer("api_get_course_info", logger):
+                    course_data = await self.api_client.get(course_info_url, require_auth=False)
+                
+                if 'content' in course_data and course_data.get('content_type') == 'html':
+                    # Parse HTML response
+                    log_with_context(logger, logging.DEBUG, "Parsing course info from HTML", {
+                        'course_id': course_id,
+                        'content_length': len(course_data['content'])
+                    })
+                    return await self._parse_course_info_from_html(course_data['content'], course_url, course_id)
+                else:
+                    # Parse JSON response
+                    log_with_context(logger, logging.DEBUG, "Parsing course info from JSON", {
+                        'course_id': course_id,
+                        'data_keys': list(course_data.keys()) if isinstance(course_data, dict) else None
+                    })
+                    return self._parse_course_info_from_json(course_data, course_url, course_id)
+                    
+            except NetworkError as e:
+                log_with_context(logger, logging.ERROR, "Failed to get course info", {
+                    'course_url': course_url,
+                    'course_id': course_id,
+                    'status_code': getattr(e, 'status_code', None),
+                    'error_message': str(e)
+                })
+                
+                if e.status_code == 404:
+                    raise CourseNotFoundError(f"Course not found: {course_id}")
+                elif e.status_code == 403:
+                    raise CourseAccessError(f"Access denied to course: {course_id}")
+                else:
+                    raise CourseAccessError(f"Failed to get course info: {str(e)}", course_id=course_id)
     
     def _parse_course_info_from_json(self, course_data: Dict[str, Any], course_url: str, course_id: str) -> CourseInfo:
         """Parse course information from JSON API response.
@@ -305,19 +336,24 @@ class CourseManager:
             CourseAccessError: If course outline cannot be accessed.
         """
         try:
-            # Try API endpoint first
-            outline_url = f"/api/courses/v1/courses/{course_info.course_key}/blocks/"
+            # FIXED: Correct API endpoint format - course_id as parameter, not in URL
+            outline_url = f"/api/courses/v1/blocks/"
             params = {
+                'course_id': course_info.course_key,  # Pass as parameter, not in URL
                 'depth': 'all',
                 'requested_fields': 'children,display_name,type,student_view_url'
             }
             
-            outline_data = await self.api_client.get(outline_url, params=params)
+            outline_data = await self._make_api_request_with_fallback(
+                outline_url, 
+                params, 
+                lambda: self._get_outline_from_course_page(course_info)
+            )
             
             if 'blocks' in outline_data:
                 return outline_data
             
-            # Fallback to course page parsing
+            # If API didn't return blocks, use fallback
             return await self._get_outline_from_course_page(course_info)
             
         except NetworkError as e:
@@ -331,6 +367,32 @@ class CourseManager:
                     f"Failed to get course outline: {str(e)}",
                     course_id=course_info.id
                 )
+    
+    async def _make_api_request_with_fallback(self, endpoint: str, params: Dict[str, Any], fallback_method):
+        """Make API request with fallback method if it fails.
+        
+        Args:
+            endpoint: API endpoint to call.
+            params: Parameters for the API call.
+            fallback_method: Fallback method to call if API fails.
+            
+        Returns:
+            API response or fallback result.
+        """
+        try:
+            return await self.api_client.get(endpoint, params=params)
+        except NetworkError as e:
+            if e.status_code == 403:
+                # Don't use fallback for 403 errors, re-raise as enrollment required
+                raise EnrollmentRequiredError(
+                    "Enrollment required to access course outline",
+                    course_id=params.get('course_id', 'unknown')
+                )
+            logger.warning(f"API request failed: {e}, falling back to alternative method")
+            return await fallback_method()
+        except CourseAccessError as e:
+            logger.warning(f"API request failed: {e}, falling back to alternative method")
+            return await fallback_method()
     
     async def _get_outline_from_course_page(self, course_info: CourseInfo) -> Dict[str, Any]:
         """Get course outline by parsing course page.

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import pickle
 import tempfile
 import time
@@ -289,6 +290,7 @@ class TestEdxApiClient:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.headers = {'content-type': 'application/json'}
+        mock_response.content = b'{"success": true}'
         mock_response.json.return_value = {"success": True}
         
         with patch.object(self.client.session, 'request', return_value=mock_response):

@@ -10,8 +10,9 @@ from bs4 import BeautifulSoup, Tag
 from .models import VideoInfo, CourseInfo
 from .api_client import EdxApiClient
 from .exceptions import ParseError, VideoNotFoundError
+from .logging_config import get_logger, log_with_context, performance_timer
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class VideoExtractor:
@@ -45,7 +46,7 @@ class VideoExtractor:
         self.base_url = api_client.base_url
     
     async def extract_videos_from_block(self, block_url: str, course_info: CourseInfo) -> List[VideoInfo]:
-        """Extract all videos from a course block.
+        """Extract all videos from a course block using multi-strategy approach.
         
         Args:
             block_url: URL of the course block.
@@ -58,34 +59,76 @@ class VideoExtractor:
             ParseError: If block content cannot be parsed.
             VideoNotFoundError: If no videos found in block.
         """
-        try:
-            logger.debug(f"Extracting videos from block: {block_url}")
-            
-            # Get block content
-            response = await self.api_client.get(block_url)
-            
-            videos = []
-            
-            if isinstance(response, dict):
-                # JSON response - try different extraction methods
-                videos.extend(await self._extract_from_json(response, course_info, block_url))
-            else:
-                # HTML response
-                soup = BeautifulSoup(str(response), 'html.parser')
-                videos.extend(await self._extract_from_html(soup, course_info, block_url))
-            
-            if not videos:
-                logger.warning(f"No videos found in block: {block_url}")
-                raise VideoNotFoundError(f"No videos found in block: {block_url}")
-            
-            logger.info(f"Extracted {len(videos)} videos from block")
-            return videos
-            
-        except Exception as e:
-            if isinstance(e, (ParseError, VideoNotFoundError)):
-                raise
-            logger.error(f"Error extracting videos from block {block_url}: {e}")
-            raise ParseError(f"Failed to extract videos from block: {e}")
+        logger.debug(f"Extracting videos from block: {block_url}")
+        
+        # Multi-strategy extraction with fallbacks
+        strategies = [
+            self._extract_from_api_data,
+            self._extract_from_html_parsing,
+            self._extract_from_javascript,
+            self._extract_from_video_elements
+        ]
+        
+        for strategy in strategies:
+            try:
+                videos = await strategy(block_url, course_info)
+                if videos:
+                    logger.info(f"Strategy {strategy.__name__} found {len(videos)} videos")
+                    return videos
+            except Exception as e:
+                logger.warning(f"Strategy {strategy.__name__} failed: {e}")
+                continue
+        
+        logger.warning(f"All extraction strategies failed for block: {block_url}")
+        raise VideoNotFoundError(f"No videos found in block: {block_url}")
+    
+    async def _extract_from_api_data(self, block_url: str, course_info: CourseInfo) -> List[VideoInfo]:
+        """Strategy 1: Extract from API data structures."""
+        response = await self.api_client.get(block_url)
+        
+        if isinstance(response, dict):
+            return await self._extract_from_json(response, course_info, block_url)
+        return []
+    
+    async def _extract_from_html_parsing(self, block_url: str, course_info: CourseInfo) -> List[VideoInfo]:
+        """Strategy 2: Extract from HTML parsing."""
+        response = await self.api_client.get(block_url)
+        
+        if not isinstance(response, dict):
+            soup = BeautifulSoup(str(response), 'html.parser')
+            return await self._extract_from_html(soup, course_info, block_url)
+        elif 'content' in response and isinstance(response['content'], str):
+            soup = BeautifulSoup(response['content'], 'html.parser')
+            return await self._extract_from_html(soup, course_info, block_url)
+        return []
+    
+    async def _extract_from_javascript(self, block_url: str, course_info: CourseInfo) -> List[VideoInfo]:
+        """Strategy 3: Extract from JavaScript content."""
+        response = await self.api_client.get(block_url)
+        videos = []
+        
+        if isinstance(response, dict) and 'content' in response:
+            soup = BeautifulSoup(response['content'], 'html.parser')
+        else:
+            soup = BeautifulSoup(str(response), 'html.parser')
+        
+        videos.extend(self._extract_js_videos(soup, course_info, block_url))
+        return videos
+    
+    async def _extract_from_video_elements(self, block_url: str, course_info: CourseInfo) -> List[VideoInfo]:
+        """Strategy 4: Extract from direct video elements."""
+        response = await self.api_client.get(block_url)
+        videos = []
+        
+        if isinstance(response, dict) and 'content' in response:
+            soup = BeautifulSoup(response['content'], 'html.parser')
+        else:
+            soup = BeautifulSoup(str(response), 'html.parser')
+        
+        videos.extend(self._extract_html5_videos(soup, course_info, block_url))
+        videos.extend(self._extract_video_links(soup, course_info, block_url))
+        videos.extend(self._extract_embedded_videos(soup, course_info, block_url))
+        return videos
     
     async def _extract_from_json(self, data: Dict[str, Any], course_info: CourseInfo, block_url: str) -> List[VideoInfo]:
         """Extract videos from JSON data.

@@ -543,10 +543,12 @@ class TestDownloadManager:
         )
         
         # Mock response with chunks
+        async def async_chunks():
+            for chunk in [b"chunk1", b"chunk2", b"chunk3"]:
+                yield chunk
+        
         mock_response = AsyncMock()
-        mock_response.content.iter_chunked.return_value = [
-            b"chunk1", b"chunk2", b"chunk3"
-        ].__aiter__()
+        mock_response.content.iter_chunked.return_value = async_chunks()
         
         # Mock file
         mock_file = AsyncMock()
@@ -575,7 +577,10 @@ class TestDownloadManager:
         mock_response = AsyncMock()
         mock_response.status = 206  # Partial content
         mock_response.headers = {}
-        mock_response.content.iter_chunked.return_value = [b"more content"].__aiter__()
+        async def async_chunks():
+            yield b"more content"
+        
+        mock_response.content.iter_chunked.return_value = async_chunks()
         
         mock_session = AsyncMock()
         mock_session.get.return_value.__aenter__.return_value = mock_response

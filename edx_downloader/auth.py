@@ -15,6 +15,9 @@ from edx_downloader.exceptions import (
     AuthenticationError, InvalidCredentialsError, SessionExpiredError,
     TwoFactorRequiredError, NetworkError, ParseError
 )
+from edx_downloader.logging_config import get_logger, log_with_context, performance_timer
+
+logger = get_logger(__name__)
 
 
 class AuthenticationManager:
@@ -64,35 +67,95 @@ class AuthenticationManager:
             InvalidCredentialsError: If credentials are invalid.
             TwoFactorRequiredError: If 2FA is required.
         """
-        # Get password from storage if not provided
-        if password is None:
-            password = self.credential_manager.get_credentials(username)
+        with performance_timer("user_authentication", logger):
+            log_with_context(logger, logging.INFO, "Starting authentication", {
+                'username': username,
+                'has_password': password is not None,
+                'base_url': self.base_url
+            })
+            
+            # Get password from storage if not provided
             if password is None:
-                raise InvalidCredentialsError(
-                    "No stored credentials found for user",
-                    username=username
-                )
-        
-        try:
-            # Step 1: Get login page and extract CSRF token
-            csrf_token = self._get_csrf_token()
+                password = self.credential_manager.get_credentials(username)
+                if password is None:
+                    log_with_context(logger, logging.ERROR, "No stored credentials found", {
+                        'username': username
+                    })
+                    raise InvalidCredentialsError(
+                        "No stored credentials found for user",
+                        username=username
+                    )
+                log_with_context(logger, logging.DEBUG, "Retrieved stored credentials", {
+                    'username': username
+                })
             
-            # Step 2: Perform login
-            auth_session = self._perform_login(username, password, csrf_token)
-            
-            # Step 3: Validate session
-            self._validate_session(auth_session)
-            
-            # Store successful credentials
-            self.credential_manager.store_credentials(username, password)
-            self.current_auth_session = auth_session
-            
-            return auth_session
-            
-        except AuthenticationError:
-            raise
-        except Exception as e:
-            raise AuthenticationError(f"Authentication failed: {str(e)}", username=username)
+            try:
+                # Step 1: Get login page and extract CSRF token
+                with performance_timer("get_csrf_token", logger):
+                    csrf_token = self._get_csrf_token()
+                    log_with_context(logger, logging.DEBUG, "Retrieved CSRF token", {
+                        'username': username,
+                        'csrf_token_length': len(csrf_token) if csrf_token else 0
+                    })
+                
+                # Step 2: Perform login
+                with performance_timer("perform_login", logger):
+                    auth_session = self._perform_login(username, password, csrf_token)
+                    log_with_context(logger, logging.DEBUG, "Login performed successfully", {
+                        'username': username,
+                        'user_id': auth_session.user_id,
+                        'expires_at': auth_session.expires_at.isoformat()
+                    })
+                
+                # Step 3: Validate session
+                with performance_timer("validate_session", logger):
+                    self._validate_session(auth_session)
+                    log_with_context(logger, logging.DEBUG, "Session validated successfully", {
+                        'username': username,
+                        'user_id': auth_session.user_id
+                    })
+                
+                # Store successful credentials
+                self.credential_manager.store_credentials(username, password)
+                self.current_auth_session = auth_session
+                
+                # Use the logging system's authentication event logger
+                from .logging_config import _logger_instance
+                if _logger_instance:
+                    _logger_instance.log_authentication_event(logger, username, True)
+                
+                log_with_context(logger, logging.INFO, "Authentication completed successfully", {
+                    'username': username,
+                    'user_id': auth_session.user_id,
+                    'session_expires_at': auth_session.expires_at.isoformat()
+                })
+                
+                return auth_session
+                
+            except AuthenticationError as e:
+                # Use the logging system's authentication event logger
+                from .logging_config import _logger_instance
+                if _logger_instance:
+                    _logger_instance.log_authentication_event(logger, username, False, str(e))
+                
+                log_with_context(logger, logging.ERROR, "Authentication failed", {
+                    'username': username,
+                    'error_type': type(e).__name__,
+                    'error_message': str(e)
+                })
+                raise
+            except Exception as e:
+                # Use the logging system's authentication event logger
+                from .logging_config import _logger_instance
+                if _logger_instance:
+                    _logger_instance.log_authentication_event(logger, username, False, str(e))
+                
+                log_with_context(logger, logging.ERROR, "Unexpected authentication error", {
+                    'username': username,
+                    'error_type': type(e).__name__,
+                    'error_message': str(e)
+                })
+                raise AuthenticationError(f"Authentication failed: {str(e)}", username=username)
     
     def _get_csrf_token(self) -> str:
         """Get CSRF token from login page.
